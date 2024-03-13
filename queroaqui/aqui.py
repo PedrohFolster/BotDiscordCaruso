@@ -4,178 +4,208 @@ import re
 from datetime import datetime, timedelta
 import json
 import os
+from tabulate import tabulate
 
-# Defina o prefixo do bot
 PREFIX = "/"
-
-# Define os intents necessários para o bot
-intents = discord.Intents.default()  # Ativa os intents padrão
-intents.members = True  # Necessário para receber eventos de atualização de membros, como join e leave
-
-# Inicializa o bot com os intents definidos
+intents = discord.Intents.default()
+intents.members = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
-# Verifica se o diretório 'json' existe e o cria se não existir
+
 if not os.path.exists("json"):
     os.makedirs("json")
 
-# Carrega os dados de cooldown do arquivo JSON, se existir
 try:
     with open("json/cooldowns.json", "r") as f:
         cooldowns = json.load(f)
 except FileNotFoundError:
     cooldowns = {}
 
-# Dicionário para mapear os níveis VIP aos IDs de cargos correspondentes
 vip_roles = {
-    "VIP1": {"id": 618187446974414848},  # Exemplo de VIP1 com ID de cargo
+    "VIP1": {"id": 618187446974414848},
+    "VIP2": {"id": 618187446974414849},
+    "VIP3": {"id": 618187446974414850},
+    "VIP4": {"id": 618187446974414851},
+    "VIP5": {"id": 618187446974414852}
 }
+log_channel_id = 796092687961948211
 
-# ID do canal de log
-log_channel_id = 796092687961948211  # Substitua pelo ID do seu canal de log
-
-# Função para verificar e remover o cargo VIP de membros que ultrapassaram o cooldown
 @tasks.loop(minutes=1)
 async def check_vip_cooldown():
-    try:
-        guild = bot.get_guild(618174343217938442)  # Substitua pelo ID do seu servidor
-        log_channel = guild.get_channel(log_channel_id)  # Obtém o canal de log
-        for member_id, roles in list(cooldowns.items()):
-            member = guild.get_member(int(member_id))
+    if bot.is_ready():  
+        guild = bot.get_guild(618174343217938442)
+        log_channel = guild.get_channel(log_channel_id)
+        current_time = datetime.now()
+        for member_id, user_data in cooldowns.items():
+            member = await guild.fetch_member(int(member_id))  # Use await aqui
             if member:
-                for role_id, cooldown_end_time in roles.items():
-                    role = guild.get_role(int(role_id))
-                    if role in member.roles:
-                        if datetime.now() > datetime.fromisoformat(cooldown_end_time):
-                            await member.remove_roles(role)
-                            del cooldowns[member_id][role_id]
-                            await log_channel.send(
-                                f'{member.mention} teve o cargo {role.name} removido após o período de cooldown.')
-    except Exception as e:
-        print(f"Ocorreu um erro: {e}")
+                for role_id, role_data in user_data.items():
+                    if role_id in vip_roles:
+                        role = guild.get_role(vip_roles[role_id]["id"])
+                        if role and role in member.roles:
+                            final_date_str = role_data["finalDate"]
+                            # Attempt to parse the date in different formats
+                            for date_format in ("%d/%m/%Y", "%Y-%m-%d"):
+                                try:
+                                    final_date = datetime.strptime(final_date_str, date_format)
+                                    if current_time > final_date:
+                                        await member.remove_roles(role)
+                                        del cooldowns[member_id][role_id]
+                                        await log_channel.send(f'{member.mention} teve o cargo {role.name} removido após o período de cooldown.')
+                                        save_data_to_json("json/cooldowns.json", cooldowns)
+                                    break  # Stop iterating if date is successfully parsed
+                                except ValueError:
+                                    continue  # Try next format if ValueError occurs
 
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user.name}')
-    # Inicia a verificação de cooldowns
-    check_vip_cooldown.start()
-
-    # Verifica se o usuário especificado já possui o cargo VIP e, caso contrário, atribui-o
-    guild = bot.get_guild(618174343217938442)  # Substitua pelo ID do seu servidor
-    log_channel = guild.get_channel(log_channel_id)  # Obtém o canal de log
-    member = guild.get_member(378549050779107329)  # Substitua pelo ID do usuário
-    if member:
-        vip_level = "VIP1"
-        role_id = vip_roles[vip_level]["id"]
-        role = guild.get_role(role_id)
-        if role and role not in member.roles:
-            await member.add_roles(role)
-            cooldown_minutes = 1  # Defina o tempo de cooldown em minutos
-            if str(member.id) not in cooldowns:
-                cooldowns[str(member.id)] = {}
-            cooldown_end_time = (datetime.now() + timedelta(minutes=cooldown_minutes)).isoformat()
-            cooldowns[str(member.id)][str(role_id)] = cooldown_end_time
-            await log_channel.send(
-                f'{member.mention} recebeu o cargo {role.name} com cooldown de {cooldown_minutes} minutos.')
-    else:
-        print("O usuário especificado não foi encontrado neste servidor.")
+    check_vip_cooldown.start()  
 
 @bot.command()
-async def darvip(ctx, member: discord.Member, vip_level: str, cooldown_time: str):
+async def darvip(ctx, member: discord.Member, vip_level: str, duracao: str, amount: float, currency: str):
     try:
-        if ctx.author.guild_permissions.administrator:
-            if vip_level.upper() in vip_roles:
-                guild = ctx.guild
-                role_id = vip_roles[vip_level.upper()]["id"]
-                role = guild.get_role(role_id)
-                log_channel = guild.get_channel(log_channel_id)
-                if role:
-                    cooldown_match = re.match(r"(\d+)([DdMm])", cooldown_time.upper())
-                    if cooldown_match:
-                        cooldown_value = int(cooldown_match.group(1))
-                        cooldown_unit = cooldown_match.group(2).upper()
-                        if cooldown_unit == "D":
-                            cooldown_days = cooldown_value
-                            cooldown_end_date = datetime.now() + timedelta(days=cooldown_days)
-                        elif cooldown_unit == "M":
-                            cooldown_days = cooldown_value / (24 * 60)  # Convertendo minutos para dias para cálculo
-                            cooldown_end_date = datetime.now() + timedelta(days=cooldown_days)
-                        else:
-                            await ctx.send("Unidade de cooldown inválida. Use 'D' para dias ou 'M' para minutos.")
-                            return
-                        
-                        await member.add_roles(role)
-                        formatted_current_date = datetime.now().strftime('%d/%m/%Y')
-                        formatted_cooldown_end_date = cooldown_end_date.strftime('%d/%m/%Y')
-                        
-                        # Construindo a mensagem de log
-                        log_message = (f'{member.name} (ID: {member.id}) recebeu o cargo {role.name} (ID: {role_id}) '
-                                       f'com cooldown de {cooldown_days} dias. Data de início: {formatted_current_date}, '
-                                       f'Data de expiração: {formatted_cooldown_end_date}.')
-                        
-                        await ctx.send(f'{member.mention} recebeu o cargo <@&{role_id}>.')
-                        await log_channel.send(log_message)
-                        
-                        # Salva os dados de cooldown no arquivo JSON
-                        save_data_to_json("json/cooldowns.json", cooldowns, log_message)
-                    else:
-                        await ctx.send("Formato de cooldown inválido. Use o formato 'Xm' ou 'Xd', onde X é o número de minutos ou dias.")
+        # Verificar se o autor do comando tem permissões de administrador, é o proprietário do bot ou é o usuário mencionado
+        if ctx.author.guild_permissions.administrator and vip_level.upper() in vip_roles:
+            guild = ctx.guild
+            role_id = vip_roles[vip_level.upper()]["id"]
+            role = guild.get_role(role_id)
+            log_channel = guild.get_channel(log_channel_id)
+            if role:
+                # Convertendo a duração para minutos
+                duracao_numerica = int(re.match(r"(\d+)([DdMm])", duracao).group(1))
+                duracao_unidade = re.match(r"(\d+)([DdMm])", duracao).group(2).upper()
+                if duracao_unidade == "D":
+                    duracao_minutos = duracao_numerica * 24 * 60
+                elif duracao_unidade == "M":
+                    duracao_minutos = duracao_numerica
                 else:
-                    await ctx.send("O cargo especificado não existe neste servidor.")
+                    await ctx.send("Unidade de duração inválida. Use 'D' para dias ou 'M' para minutos.")
+                    return
+                # Calcular data final
+                final_date = (datetime.now() + timedelta(minutes=duracao_minutos)).strftime('%d/%m/%Y')  # Corrigindo o formato da data
+                # Criar entrada no JSON
+                user_data = {
+                    "usuario": member.name,
+                    "dataCompra": datetime.now().strftime('%d/%m/%Y'),
+                    "finalDate": final_date,  # Ajuste do formato da data
+                    "VIP": vip_level.upper(),
+                    "duracao": duracao_numerica,
+                    "amount": amount,
+                    "currency": currency
+                }
+                # Adicionar cargo ao usuário
+                await member.add_roles(role)
+                # Atualizar JSON
+                if str(member.id) not in cooldowns:
+                    cooldowns[str(member.id)] = {}
+                cooldowns[str(member.id)][vip_level.upper()] = user_data
+
+                # Convert finalDate to ISO 8601 format before saving
+                final_date_iso = datetime.strptime(final_date, '%d/%m/%Y').strftime('%Y-%m-%d')
+                cooldowns[str(member.id)][vip_level.upper()]['finalDate'] = final_date_iso
+
+                save_data_to_json("json/cooldowns.json", cooldowns)
+                await ctx.send(f'{member.mention} recebeu o cargo {role.name}.')
+                await log_channel.send(f'{member.name} recebeu o cargo {role.name}.')
             else:
-                await ctx.send("Nível VIP inválido.")
+                await ctx.send("O cargo especificado não existe neste servidor.")
         else:
-            await ctx.send("Você não tem permissão para executar este comando.")
+            await ctx.send("Nível VIP inválido ou você não tem permissão para executar este comando.")
     except Exception as e:
         print(f"Ocorreu um erro: {e}")
 
 
-def save_data_to_json(file_path, data, log_message=None):
-    # Se houver um log_message, extraia as informações
-    if log_message:
-        match = re.match(
-            r'(.+) \(ID: (\d+)\) recebeu o cargo (.+) \(ID: (\d+)\) com cooldown de (\d+) dias\. Data de início: (\d+/\d+/\d+), Data de expiração: (\d+/\d+/\d+)', log_message)
-        
-        if match:
-            # Extrair informações correspondentes aos grupos da expressão regular
-            name, user_id, cargo, cargo_id, tempo, data_inicio, data_fim = match.groups()
+def save_data_to_json(file_path, data):
+    try:
+        with open(file_path, "w") as json_file:
+            json.dump(data, json_file, indent=4)
+            print("Dados salvos em JSON com sucesso.")
+    except Exception as e:
+        print(f"Erro ao salvar dados em JSON: {e}")
 
-            # Formatar os dados como um dicionário
-            log_entry = {
-                "nome": name,
-                "id_usuario": user_id,
-                "cargo": cargo,
-                "id_cargo": cargo_id,
-                "tempo": tempo,
-                "data_inicio": data_inicio,
-                "data_fim": data_fim
-            }
-
-            # Verificar se o arquivo já contém registros
-            if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-                # Adicionar uma vírgula ao final do arquivo antes de adicionar o novo registro
-                with open(file_path, "rb+") as f:
-                    f.seek(-1, os.SEEK_END)
-                    f.truncate()
-                    f.write(b',')
-
-            # Salvar o registro no arquivo JSON
-            with open(file_path, "a") as f:
-                json.dump(log_entry, f, indent=4)
-                f.write("\n")
+# Comando "/removervip"
+@bot.command()
+async def removervip(ctx, member: discord.Member, vip_level: str):
+    try:
+        if ctx.author.guild_permissions.administrator and vip_level.upper() in vip_roles:
+            guild = ctx.guild
+            role_id = vip_roles[vip_level.upper()]["id"]
+            role = guild.get_role(role_id)
+            log_channel = guild.get_channel(log_channel_id)
+            if role:
+                if role in member.roles:
+                    # Remover cargo do usuário
+                    await member.remove_roles(role)
+                    # Remover entrada do VIP do JSON
+                    del cooldowns[str(member.id)][vip_level.upper()]
+                    save_data_to_json("json/cooldowns.json", cooldowns)
+                    await ctx.send(f'{member.mention} teve o cargo {role.name} removido.')
+                else:
+                    await ctx.send(f'{member.mention} não possui o cargo {role.name}.')
+            else:
+                await ctx.send("O cargo especificado não existe neste servidor.")
         else:
-            print("Log message não corresponde ao padrão esperado.")
-    else:
-        # Salvar os dados de cooldown no arquivo JSON
-        with open(file_path, "w") as f:
-            json.dump(data, f, indent=4)
+            await ctx.send("Nível VIP inválido ou você não tem permissão para executar este comando.")
+    except Exception as e:
+        print(f"Ocorreu um erro: {e}")
 
-# Salva os dados de cooldown no arquivo JSON
-@bot.event
-async def on_shutdown():
-    for log_message in log_messages:
-        save_data_to_json("json/log_messages.json", cooldowns, log_message)
-    save_data_to_json("json/cooldowns.json", cooldowns)
+
+# Comando "/changevip"
+@bot.command()
+async def changevip(ctx, member: discord.Member, new_vip_level: str, duracao: str, amount: float, currency: str):
+    try:
+        if ctx.author.guild_permissions.administrator and new_vip_level.upper() in vip_roles:
+            guild = ctx.guild
+            role_id = vip_roles[new_vip_level.upper()]["id"]
+            role = guild.get_role(role_id)
+            log_channel = guild.get_channel(log_channel_id)
+            if role:
+                if role in member.roles:
+                    # Atualizar dados do usuário no JSON
+                    duracao_numerica = int(re.match(r"(\d+)([DdMm])", duracao).group(1))
+                    duracao_unidade = re.match(r"(\d+)([DdMm])", duracao).group(2).upper()
+                    if duracao_unidade == "D":
+                        duracao_minutos = duracao_numerica * 24 * 60
+                    elif duracao_unidade == "M":
+                        duracao_minutos = duracao_numerica
+                    else:
+                        await ctx.send("Unidade de duração inválida. Use 'D' para dias ou 'M' para minutos.")
+                        return
+                    final_date = datetime.now() + timedelta(minutes=duracao_minutos)
+                    cooldowns[str(member.id)][new_vip_level.upper()] = {
+                        "dataCompra": datetime.now().isoformat(),
+                        "finalDate": final_date.isoformat(),
+                        "VIP": new_vip_level.upper(),
+                        "duracao": duracao_numerica,
+                        "amount": amount,
+                        "currency": currency
+                    }
+                    save_data_to_json("json/cooldowns.json", cooldowns)
+                    await ctx.send(f'{member.mention} teve seu VIP alterado para {new_vip_level.upper()}.')
+                else:
+                    await ctx.send(f'{member.mention} não possui o cargo {role.name}.')
+            else:
+                await ctx.send("O cargo especificado não existe neste servidor.")
+        else:
+            await ctx.send("Nível VIP inválido ou você não tem permissão para executar este comando.")
+    except Exception as e:
+        print(f"Ocorreu um erro: {e}")
+
+# Comando "/status"
+@bot.command()
+async def status(ctx):
+    try:
+        embed = discord.Embed(title="Status dos Usuários", color=discord.Color.blue())
+        for user_id, user_data in cooldowns.items():
+            member = ctx.guild.get_member(int(user_id))
+            user_mention = member.mention if member else f"Usuário não encontrado ({user_id})"
+            roles_info = ""
+            for vip_level, vip_data in user_data.items():
+                roles_info += f"**VIP**: {vip_data['VIP']}, **Duração**: {vip_data['duracao']} dias\n"
+            embed.add_field(name=f"Usuário: {user_mention}", value=roles_info, inline=False)
+        await ctx.send(embed=embed)
+    except Exception as e:
+        print(f"Ocorreu um erro: {e}")
 
 # Substitua "SEU_TOKEN" pelo seu token de bot do Discord
-bot.run("TOKEN")
+bot.run("MTIxNjYwMjY2NDkyNjcwNzc0Mw.G31UGq.N1tCMe8RtP9g1Zn9w7W5rzUuklHPJh9Y7I-5C0")

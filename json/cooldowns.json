@@ -1,0 +1,13 @@
+{
+    "1216602664926707743": {
+        "VIP1": {
+            "usuario": "TesterChannelVIP",
+            "dataCompra": "13/03/2024",
+            "finalDate": "2024-03-23",
+            "VIP": "VIP1",
+            "duracao": 10,
+            "amount": 1.0,
+            "currency": "BRL"
+        }
+    }
+}
