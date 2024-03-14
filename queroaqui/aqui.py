@@ -59,58 +59,55 @@ async def check_vip_cooldown():
 
 @bot.event
 async def on_ready():
-    check_vip_cooldown.start()  
+    check_vip_cooldown.start()  # Inicie a tarefa somente quando o bot estiver pronto
+
 
 @bot.command()
 async def darvip(ctx, member: discord.Member, vip_level: str, duracao: str, amount: float, currency: str):
     try:
-        # Verificar se o autor do comando tem permissões de administrador, é o proprietário do bot ou é o usuário mencionado
-        if ctx.author.guild_permissions.administrator and vip_level.upper() in vip_roles:
-            guild = ctx.guild
-            role_id = vip_roles[vip_level.upper()]["id"]
-            role = guild.get_role(role_id)
-            log_channel = guild.get_channel(log_channel_id)
-            if role:
-                # Convertendo a duração para minutos
-                duracao_numerica = int(re.match(r"(\d+)([DdMm])", duracao).group(1))
-                duracao_unidade = re.match(r"(\d+)([DdMm])", duracao).group(2).upper()
-                if duracao_unidade == "D":
-                    duracao_minutos = duracao_numerica * 24 * 60
-                elif duracao_unidade == "M":
-                    duracao_minutos = duracao_numerica
-                else:
-                    await ctx.send("Unidade de duração inválida. Use 'D' para dias ou 'M' para minutos.")
-                    return
-                # Calcular data final
-                final_date = (datetime.now() + timedelta(minutes=duracao_minutos)).strftime('%d/%m/%Y')  # Corrigindo o formato da data
-                # Criar entrada no JSON
-                user_data = {
-                    "usuario": member.name,
-                    "dataCompra": datetime.now().strftime('%d/%m/%Y'),
-                    "finalDate": final_date,  # Ajuste do formato da data
-                    "VIP": vip_level.upper(),
-                    "duracao": duracao_numerica,
-                    "amount": amount,
-                    "currency": currency
-                }
-                # Adicionar cargo ao usuário
-                await member.add_roles(role)
-                # Atualizar JSON
-                if str(member.id) not in cooldowns:
-                    cooldowns[str(member.id)] = {}
-                cooldowns[str(member.id)][vip_level.upper()] = user_data
-
-                # Convert finalDate to ISO 8601 format before saving
-                final_date_iso = datetime.strptime(final_date, '%d/%m/%Y').strftime('%Y-%m-%d')
-                cooldowns[str(member.id)][vip_level.upper()]['finalDate'] = final_date_iso
-
-                save_data_to_json("json/cooldowns.json", cooldowns)
-                await ctx.send(f'{member.mention} recebeu o cargo {role.name}.')
-                await log_channel.send(f'{member.name} recebeu o cargo {role.name}.')
+        guild = ctx.guild
+        role_id = vip_roles[vip_level.upper()]["id"]
+        role = guild.get_role(role_id)
+        log_channel = guild.get_channel(log_channel_id)
+        if role:
+            # Convertendo a duração para minutos
+            duracao_numerica = int(re.match(r"(\d+)([DdMm])", duracao).group(1))
+            duracao_unidade = re.match(r"(\d+)([DdMm])", duracao).group(2).upper()
+            if duracao_unidade == "D":
+                duracao_minutos = duracao_numerica * 24 * 60
+            elif duracao_unidade == "M":
+                duracao_minutos = duracao_numerica
             else:
-                await ctx.send("O cargo especificado não existe neste servidor.")
+                await ctx.send("Unidade de duração inválida. Use 'D' para dias ou 'M' para minutos.")
+                return
+            # Calcular data final
+            final_date = (datetime.now() + timedelta(minutes=duracao_minutos)).strftime('%d/%m/%Y')  # Corrigindo o formato da data
+            # Criar entrada no JSON
+            user_data = {
+                "usuario": member.name,
+                "dataCompra": datetime.now().strftime('%d/%m/%Y'),
+                "finalDate": final_date,  # Ajuste do formato da data
+                "VIP": vip_level.upper(),
+                "duracao": duracao_numerica,
+                "amount": amount,
+                "currency": currency
+            }
+            # Adicionar cargo ao usuário
+            await member.add_roles(role)
+            # Atualizar JSON
+            if str(member.id) not in cooldowns:
+                cooldowns[str(member.id)] = {}
+            cooldowns[str(member.id)][vip_level.upper()] = user_data
+
+            # Convert finalDate to ISO 8601 format before saving
+            final_date_iso = datetime.strptime(final_date, '%d/%m/%Y').strftime('%Y-%m-%d')
+            cooldowns[str(member.id)][vip_level.upper()]['finalDate'] = final_date_iso
+
+            save_data_to_json("json/cooldowns.json", cooldowns)
+            await ctx.send(f'{member.mention} recebeu o cargo {role.name}.')
+            await log_channel.send(f'{member.name} recebeu o cargo {role.name}.')
         else:
-            await ctx.send("Nível VIP inválido ou você não tem permissão para executar este comando.")
+            await ctx.send("O cargo especificado não existe neste servidor.")
     except Exception as e:
         print(f"Ocorreu um erro: {e}")
 
@@ -208,4 +205,4 @@ async def status(ctx):
         print(f"Ocorreu um erro: {e}")
 
 # Substitua "SEU_TOKEN" pelo seu token de bot do Discord
-bot.run("MTIxNjYwMjY2NDkyNjcwNzc0Mw.G31UGq.N1tCMe8RtP9g1Zn9w7W5rzUuklHPJh9Y7I-5C0")
+bot.run("MTIxNjYwMjY2NDkyNjcwNzc0Mw.GA3tnf.PYwgPE6BhKfmNFIUpEg7IshOLxASS2tf3R6SIs")
